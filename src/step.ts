@@ -30,11 +30,14 @@ export const MAX_MICROSTEPS = 1000;
 export interface StepSnapshot<C, E extends EventObject> {
   configuration: Iterable<StateNode<C, E>>;
   context: C;
+  /** Recorded history: history node id to the remembered states. */
+  history?: ReadonlyMap<string, readonly StateNode<C, E>[]>;
 }
 
 export class Stepper<C, E extends EventObject> {
   readonly configuration: Set<StateNode<C, E>>;
   context: C;
+  readonly history: Map<string, readonly StateNode<C, E>[]>;
   readonly effects: Effect<C, E>[] = [];
   /** Number of transitions taken so far. */
   taken = 0;
@@ -48,6 +51,7 @@ export class Stepper<C, E extends EventObject> {
   ) {
     this.configuration = new Set(snapshot.configuration);
     this.context = snapshot.context;
+    this.history = new Map(snapshot.history);
   }
 
   /** Enters the initial configuration and runs to a stable state. */
@@ -216,10 +220,25 @@ export class Stepper<C, E extends EventObject> {
 
   private exitStates(transitions: readonly TransitionDefinition<C, E>[]): void {
     const ordered = [...this.exitSetOf(transitions)].sort(byDocumentOrder).reverse();
+    // History is recorded for all exiting states before any of them is removed.
+    for (const node of ordered) {
+      for (const child of node.children) {
+        if (child.kind === 'history') {
+          this.history.set(child.id, this.activeBelow(node, child.historyKind === 'deep'));
+        }
+      }
+    }
     for (const node of ordered) {
       this.runActions(node.exit, node);
       this.configuration.delete(node);
     }
+  }
+
+  /** Active direct children of `node` (shallow) or active leaves below it (deep). */
+  private activeBelow(node: StateNode<C, E>, deep: boolean): StateNode<C, E>[] {
+    return [...this.configuration]
+      .filter((active) => (deep ? active.isLeaf && isDescendant(active, node) : active.parent === node))
+      .sort(byDocumentOrder);
   }
 
   private computeEntrySet(transitions: readonly TransitionDefinition<C, E>[]): Set<StateNode<C, E>> {
@@ -240,14 +259,39 @@ export class Stepper<C, E extends EventObject> {
 
   /**
    * Adds a state and its default descendants: the initial child of a compound
-   * state, every region of a parallel state.
+   * state, every region of a parallel state. A history state is never entered
+   * itself; it stands for the states it remembers.
    */
   private addDescendants(node: StateNode<C, E>, toEnter: Set<StateNode<C, E>>): void {
+    if (node.kind === 'history') {
+      this.addHistory(node, toEnter);
+      return;
+    }
     toEnter.add(node);
     if (node.kind === 'compound' && node.initial) {
       this.addDescendants(node.initial, toEnter);
     } else if (node.kind === 'parallel') {
       this.addMissingRegions(node, toEnter);
+    }
+  }
+
+  private addHistory(node: StateNode<C, E>, toEnter: Set<StateNode<C, E>>): void {
+    const parent = node.parent as StateNode<C, E>;
+    const remembered = this.history.get(node.id) ?? (node.historyDefault ? [node.historyDefault] : undefined);
+    if (!remembered) {
+      // Nothing recorded and no default target: behave like a plain entry of the parent.
+      if (parent.kind === 'parallel') {
+        this.addMissingRegions(parent, toEnter);
+      } else if (parent.initial) {
+        this.addDescendants(parent.initial, toEnter);
+      }
+      return;
+    }
+    for (const state of remembered) {
+      this.addDescendants(state, toEnter);
+    }
+    for (const state of remembered) {
+      this.addAncestors(state, parent, toEnter);
     }
   }
 
@@ -268,6 +312,9 @@ export class Stepper<C, E extends EventObject> {
   /** Enters by default every region that is not already being entered. */
   private addMissingRegions(parallel: StateNode<C, E>, toEnter: Set<StateNode<C, E>>): void {
     for (const region of parallel.children) {
+      if (region.kind === 'history') {
+        continue;
+      }
       const covered = [...toEnter].some((node) => node === region || isDescendant(node, region));
       if (!covered) {
         this.addDescendants(region, toEnter);

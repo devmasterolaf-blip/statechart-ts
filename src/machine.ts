@@ -78,17 +78,37 @@ export class Machine<C, E extends EventObject> {
     const stepper = new Stepper(this.root, this.implementations, {
       configuration: state.configuration,
       context: state.context,
+      history: this.historyNodes(state.history),
     });
     stepper.send(eventObject);
     return this.snapshot(stepper, eventObject, stepper.taken > 0);
   }
 
+  private historyNodes(history: ReadonlyMap<string, readonly string[]>): Map<string, StateNode<C, E>[]> {
+    const result = new Map<string, StateNode<C, E>[]>();
+    for (const [historyId, stateIds] of history) {
+      result.set(
+        historyId,
+        stateIds.map((stateId) => this.byId.get(stateId) as StateNode<C, E>),
+      );
+    }
+    return result;
+  }
+
   private snapshot(stepper: Stepper<C, E>, event: EventObject, changed: boolean): State<C, E> {
+    const history = new Map<string, readonly string[]>();
+    for (const [historyId, nodes] of stepper.history) {
+      history.set(
+        historyId,
+        nodes.map((node) => node.id),
+      );
+    }
     return new State({
       root: this.root,
       configuration: stepper.configuration,
       context: stepper.context,
       event,
+      history,
       effects: stepper.effects,
       changed,
     });

@@ -322,6 +322,9 @@ class TreeBuilder<C, E extends EventObject> {
     const { config, kind } = node;
     if (kind === 'history') {
       this.resolveHistoryDefault(node);
+      if (node.parent?.initial === node && !node.historyDefault) {
+        this.report('invalid-history', node, 'A history state used as "initial" needs a default "target".');
+      }
       return;
     }
     const hasTransitions =
@@ -424,6 +427,8 @@ class TreeBuilder<C, E extends EventObject> {
       this.report('unknown-target', node, `History default target "${raw}" does not exist.`);
     } else if (target === node || !isDescendant(target, node.parent)) {
       this.report('invalid-history', node, `History default target "${raw}" must be inside "${node.parent.label}".`);
+    } else if (target.kind === 'history') {
+      this.report('invalid-history', node, `History default target "${raw}" must not be a history state.`);
     } else {
       node.historyDefault = target;
     }
