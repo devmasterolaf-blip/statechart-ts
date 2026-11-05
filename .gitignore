@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.scratch/
+npm-debug.log*
+.DS_Store
