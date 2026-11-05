@@ -83,3 +83,24 @@ export class MacrostepLimitError extends StatechartError {
     this.limit = limit;
   }
 }
+
+/** An action function threw while a service was executing it. */
+export class ActionExecutionError extends StatechartError {
+  override readonly cause: unknown;
+  readonly actionName: string | undefined;
+
+  constructor(actionName: string | undefined, eventType: string, cause: unknown) {
+    const which = actionName === undefined ? 'An inline action' : `Action "${actionName}"`;
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super('action-failed', `${which} threw while handling event "${eventType}": ${reason}`);
+    this.actionName = actionName;
+    this.cause = cause;
+  }
+}
+
+/** A service method was called in a status that does not allow it. */
+export class ServiceStateError extends StatechartError {
+  constructor(message: string) {
+    super('invalid-service-state', message);
+  }
+}

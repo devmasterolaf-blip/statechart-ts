@@ -12,3 +12,5 @@ export type { Effect, ExecEffect } from './state';
 export { Machine, createMachine } from './machine';
 export { ClockError, SimulatedClock, SystemClock } from './clock';
 export type { Clock, TimerHandle } from './clock';
+export { Service, interpret } from './interpreter';
+export type { ErrorListener, ServiceStatus, StateListener, Unsubscribe } from './interpreter';
