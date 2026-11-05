@@ -292,7 +292,11 @@ export class Service<C, E extends EventObject> {
         }
         break;
       case 'schedule':
-        this.schedule(effect.id, effect.event, effect.delay);
+        // An earlier action of this step may have stopped the service; a
+        // timer started now would outlive it.
+        if (this.currentStatus === 'running') {
+          this.schedule(effect.id, effect.event, effect.delay);
+        }
         break;
       case 'cancel':
         this.cancel(effect.id);

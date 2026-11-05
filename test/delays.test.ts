@@ -249,3 +249,24 @@ test('works with the system clock', async () => {
   service.start();
   assert.equal(await done, 'b');
 });
+
+test('an action that stops the service leaves no timer behind', () => {
+  type E = { type: 'GO' };
+  const clock = new SimulatedClock();
+  const holder: { stop?: () => void } = {};
+  const machine = createMachine<undefined, E>({
+    initial: 'a',
+    states: {
+      a: { on: { GO: { target: 'b', actions: () => holder.stop?.() } } },
+      b: { after: { 10: 'a' } },
+    },
+  });
+  const service = interpret(machine, { clock }).start();
+  holder.stop = () => service.stop();
+  service.send('GO');
+  assert.equal(service.status, 'stopped');
+  // The timer of "b" used to be started after stop() had cancelled all timers.
+  assert.equal(clock.pending, 0);
+  clock.advance(100);
+  assert.equal(service.getSnapshot().value, 'b');
+});
