@@ -8,7 +8,7 @@
  */
 
 import { applyAssign } from './actions';
-import { MacrostepLimitError, MissingImplementationError } from './errors';
+import { InvalidDelayError, MacrostepLimitError, MissingImplementationError } from './errors';
 import { evaluateGuard } from './guards';
 import {
   ALWAYS_EVENT,
@@ -16,6 +16,7 @@ import {
   doneEventType,
   isDescendant,
   properAncestors,
+  type DelayDefinition,
   type StateNode,
   type TransitionDefinition,
 } from './node';
@@ -255,6 +256,9 @@ export class Stepper<C, E extends EventObject> {
     }
     for (const node of ordered) {
       this.runActions(node.exit, node);
+      for (const delay of node.delays) {
+        this.effects.push({ kind: 'cancel', id: delay.eventType });
+      }
       this.configuration.delete(node);
     }
   }
@@ -354,6 +358,14 @@ export class Stepper<C, E extends EventObject> {
         continue;
       }
       this.configuration.add(node);
+      for (const delay of node.delays) {
+        this.effects.push({
+          kind: 'schedule',
+          id: delay.eventType,
+          event: { type: delay.eventType },
+          delay: this.resolveDelay(delay, node),
+        });
+      }
       this.runActions(node.entry, node);
       if (node.kind === 'final') {
         this.raiseDone(node);
@@ -374,6 +386,22 @@ export class Stepper<C, E extends EventObject> {
       this.internalQueue.push({ type: doneEventType(enclosing.id) });
       enclosing = enclosing.parent;
     }
+  }
+
+  /** Delays are evaluated once, when the state is entered. */
+  private resolveDelay(definition: DelayDefinition, owner: StateNode<C, E>): number {
+    let value: unknown = definition.delay;
+    if (typeof definition.delay === 'string') {
+      const implementation = this.implementations.delays?.[definition.delay];
+      if (implementation === undefined) {
+        throw new MissingImplementationError('delay', definition.delay, owner.label);
+      }
+      value = typeof implementation === 'function' ? implementation(this.context, this.event as E) : implementation;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new InvalidDelayError(definition.key, owner.label, value);
+    }
+    return value;
   }
 
   // -------------------------------------------------------------------------

@@ -177,7 +177,9 @@ test('exec effects capture the context and event at the point the action was rea
   assert.equal(state.context.total, 5);
   assert.deepEqual(seen, [], 'nothing runs while the transition is computed');
   for (const effect of state.effects) {
-    effect.exec(effect.context, effect.event, { send: () => undefined });
+    if (effect.kind === 'exec') {
+      effect.exec(effect.context, effect.event, { send: () => undefined });
+    }
   }
   assert.deepEqual(seen, [
     ['before', 0, 'ADD'],

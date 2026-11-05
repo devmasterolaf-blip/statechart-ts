@@ -20,7 +20,21 @@ export interface ExecEffect<C, E extends EventObject> {
   event: E;
 }
 
-export type Effect<C, E extends EventObject> = ExecEffect<C, E>;
+/** Start a timer that sends `event` after `delay` ms; replaces a timer with the same id. */
+export interface ScheduleEffect {
+  kind: 'schedule';
+  id: string;
+  event: EventObject;
+  delay: number;
+}
+
+/** Cancel the timer with this id, if it is still pending. */
+export interface CancelEffect {
+  kind: 'cancel';
+  id: string;
+}
+
+export type Effect<C, E extends EventObject> = ExecEffect<C, E> | ScheduleEffect | CancelEffect;
 
 /**
  * Computes the value of `node` for a configuration: the key of the active

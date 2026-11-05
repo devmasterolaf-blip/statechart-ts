@@ -70,6 +70,16 @@ export class GuardEvaluationError extends StatechartError {
   }
 }
 
+/** A delay resolved to something that is not a finite, non-negative number. */
+export class InvalidDelayError extends StatechartError {
+  constructor(delayKey: string, stateLabel: string, value: unknown) {
+    super(
+      'invalid-delay',
+      `Delay "${delayKey}" of state "${stateLabel}" resolved to ${String(value)}; expected a finite number >= 0.`,
+    );
+  }
+}
+
 /** One event caused more microsteps than allowed, most likely an endless loop. */
 export class MacrostepLimitError extends StatechartError {
   readonly limit: number;

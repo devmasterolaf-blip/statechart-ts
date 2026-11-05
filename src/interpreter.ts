@@ -4,6 +4,7 @@
  * event sent while another is being handled waits in a queue.
  */
 
+import { SystemClock, type Clock, type TimerHandle } from './clock';
 import { ActionExecutionError, ServiceStateError } from './errors';
 import { toEventObject, type Machine } from './machine';
 import type { Effect, State } from './state';
@@ -21,8 +22,22 @@ export type StateListener<C, E extends EventObject> = (state: State<C, E>) => vo
 export type ErrorListener = (error: unknown) => void;
 export type Unsubscribe = () => void;
 
+export interface ServiceOptions {
+  /** Drives delayed transitions. Defaults to the system clock. */
+  clock?: Clock;
+}
+
+interface ActiveTimer {
+  handle: TimerHandle;
+  event: EventObject;
+  /** Clock time at which the timer fires. */
+  due: number;
+}
+
 export class Service<C, E extends EventObject> {
   readonly machine: Machine<C, E>;
+  readonly clock: Clock;
+  private readonly timers = new Map<string, ActiveTimer>();
   private current: State<C, E> | undefined;
   private currentStatus: ServiceStatus = 'idle';
   private readonly queue: E[] = [];
@@ -34,8 +49,9 @@ export class Service<C, E extends EventObject> {
   private pendingErrors: unknown[] = [];
   private readonly meta: ActionMeta<E> = { send: (event) => this.send(event) };
 
-  constructor(machine: Machine<C, E>) {
+  constructor(machine: Machine<C, E>, options: ServiceOptions = {}) {
     this.machine = machine;
+    this.clock = options.clock ?? new SystemClock();
   }
 
   get status(): ServiceStatus {
@@ -65,11 +81,12 @@ export class Service<C, E extends EventObject> {
     return this;
   }
 
-  /** Stops the service. Queued and later events are dropped. */
+  /** Stops the service. Queued and later events are dropped, timers cancelled. */
   stop(): this {
     if (this.currentStatus === 'running' || this.currentStatus === 'idle') {
       this.currentStatus = 'stopped';
       this.queue.length = 0;
+      this.cancelAllTimers();
     }
     return this;
   }
@@ -179,6 +196,7 @@ export class Service<C, E extends EventObject> {
     if (state.done) {
       this.currentStatus = 'done';
       this.queue.length = 0;
+      this.cancelAllTimers();
     }
     for (const listener of [...this.listeners]) {
       this.guarded(() => listener(state));
@@ -191,15 +209,55 @@ export class Service<C, E extends EventObject> {
   }
 
   private execute(effect: Effect<C, E>): void {
-    try {
-      effect.exec(effect.context, effect.event, this.meta);
-    } catch (cause) {
-      this.report(new ActionExecutionError(effect.name, effect.event.type, cause));
+    switch (effect.kind) {
+      case 'exec':
+        try {
+          effect.exec(effect.context, effect.event, this.meta);
+        } catch (cause) {
+          this.report(new ActionExecutionError(effect.name, effect.event.type, cause));
+        }
+        break;
+      case 'schedule':
+        this.schedule(effect.id, effect.event, effect.delay);
+        break;
+      case 'cancel':
+        this.cancel(effect.id);
+        break;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Timers
+  // -------------------------------------------------------------------------
+
+  private schedule(id: string, event: EventObject, delay: number): void {
+    this.cancel(id);
+    const handle = this.clock.setTimeout(() => {
+      this.timers.delete(id);
+      this.send(event as E);
+    }, delay);
+    this.timers.set(id, { handle, event, due: this.clock.now() + delay });
+  }
+
+  private cancel(id: string): void {
+    const timer = this.timers.get(id);
+    if (timer) {
+      this.clock.clearTimeout(timer.handle);
+      this.timers.delete(id);
+    }
+  }
+
+  private cancelAllTimers(): void {
+    for (const id of [...this.timers.keys()]) {
+      this.cancel(id);
     }
   }
 }
 
 /** Creates a service for a machine. Call start() to run it. */
-export function interpret<C, E extends EventObject>(machine: Machine<C, E>): Service<C, E> {
-  return new Service(machine);
+export function interpret<C, E extends EventObject>(
+  machine: Machine<C, E>,
+  options?: ServiceOptions,
+): Service<C, E> {
+  return new Service(machine, options);
 }
