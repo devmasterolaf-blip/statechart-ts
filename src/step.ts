@@ -95,7 +95,8 @@ export class Stepper<C, E extends EventObject> {
 
   /**
    * For every active leaf, the first matching transition whose guard passes,
-   * found on the leaf or its nearest ancestor, wins.
+   * found on the leaf or its nearest ancestor, wins. With parallel regions
+   * several transitions can be enabled at once; conflicting ones are dropped.
    */
   private select(eventType: string): TransitionDefinition<C, E>[] {
     const enabled: TransitionDefinition<C, E>[] = [];
@@ -113,7 +114,38 @@ export class Stepper<C, E extends EventObject> {
         }
       }
     }
-    return enabled;
+    return enabled.length > 1 ? this.removeConflicts(enabled) : enabled;
+  }
+
+  /**
+   * Two transitions conflict when they would exit a common state. The one
+   * whose source is nested inside the other's source wins; otherwise the one
+   * selected first (earlier region in document order) wins.
+   */
+  private removeConflicts(enabled: readonly TransitionDefinition<C, E>[]): TransitionDefinition<C, E>[] {
+    let kept: TransitionDefinition<C, E>[] = [];
+    for (const candidate of enabled) {
+      const candidateExits = this.exitSetOf([candidate]);
+      const displaced = new Set<TransitionDefinition<C, E>>();
+      let preempted = false;
+      for (const other of kept) {
+        const otherExits = this.exitSetOf([other]);
+        if (![...candidateExits].some((node) => otherExits.has(node))) {
+          continue;
+        }
+        if (isDescendant(candidate.source, other.source)) {
+          displaced.add(other);
+        } else {
+          preempted = true;
+          break;
+        }
+      }
+      if (!preempted) {
+        kept = kept.filter((other) => !displaced.has(other));
+        kept.push(candidate);
+      }
+    }
+    return kept;
   }
 
   private passes(transition: TransitionDefinition<C, E>): boolean {
@@ -166,7 +198,7 @@ export class Stepper<C, E extends EventObject> {
     return this.root;
   }
 
-  private exitStates(transitions: readonly TransitionDefinition<C, E>[]): void {
+  private exitSetOf(transitions: readonly TransitionDefinition<C, E>[]): Set<StateNode<C, E>> {
     const toExit = new Set<StateNode<C, E>>();
     for (const transition of transitions) {
       const domain = this.domainOf(transition);
@@ -179,7 +211,11 @@ export class Stepper<C, E extends EventObject> {
         }
       }
     }
-    const ordered = [...toExit].sort(byDocumentOrder).reverse();
+    return toExit;
+  }
+
+  private exitStates(transitions: readonly TransitionDefinition<C, E>[]): void {
+    const ordered = [...this.exitSetOf(transitions)].sort(byDocumentOrder).reverse();
     for (const node of ordered) {
       this.runActions(node.exit, node);
       this.configuration.delete(node);
@@ -189,22 +225,53 @@ export class Stepper<C, E extends EventObject> {
   private computeEntrySet(transitions: readonly TransitionDefinition<C, E>[]): Set<StateNode<C, E>> {
     const toEnter = new Set<StateNode<C, E>>();
     for (const transition of transitions) {
-      const domain = this.domainOf(transition);
+      // Every explicit target goes in first, so that the default entry of a
+      // parallel region never competes with a target inside that region.
       for (const target of transition.targets) {
         this.addDescendants(target, toEnter);
-        for (const ancestor of properAncestors(target, domain)) {
-          toEnter.add(ancestor);
-        }
+      }
+      const domain = this.domainOf(transition);
+      for (const target of transition.targets) {
+        this.addAncestors(target, domain, toEnter);
       }
     }
     return toEnter;
   }
 
-  /** Adds a state and, for compound states, its default descendants. */
+  /**
+   * Adds a state and its default descendants: the initial child of a compound
+   * state, every region of a parallel state.
+   */
   private addDescendants(node: StateNode<C, E>, toEnter: Set<StateNode<C, E>>): void {
     toEnter.add(node);
     if (node.kind === 'compound' && node.initial) {
       this.addDescendants(node.initial, toEnter);
+    } else if (node.kind === 'parallel') {
+      this.addMissingRegions(node, toEnter);
+    }
+  }
+
+  /** Adds the ancestors of a target up to (not including) the domain. */
+  private addAncestors(
+    node: StateNode<C, E>,
+    domain: StateNode<C, E> | undefined,
+    toEnter: Set<StateNode<C, E>>,
+  ): void {
+    for (const ancestor of properAncestors(node, domain)) {
+      toEnter.add(ancestor);
+      if (ancestor.kind === 'parallel') {
+        this.addMissingRegions(ancestor, toEnter);
+      }
+    }
+  }
+
+  /** Enters by default every region that is not already being entered. */
+  private addMissingRegions(parallel: StateNode<C, E>, toEnter: Set<StateNode<C, E>>): void {
+    for (const region of parallel.children) {
+      const covered = [...toEnter].some((node) => node === region || isDescendant(node, region));
+      if (!covered) {
+        this.addDescendants(region, toEnter);
+      }
     }
   }
 
