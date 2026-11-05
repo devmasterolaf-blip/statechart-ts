@@ -30,3 +30,5 @@ export type { ValidateOptions } from './validate';
 export { toDot } from './export/dot';
 export { toMermaid } from './export/mermaid';
 export type { DiagramOptions } from './export/labels';
+export { ConfigParseError, checkMachineConfig, parseMachineConfig } from './json';
+export type { ConfigProblem, JsonMachineConfig } from './json';
