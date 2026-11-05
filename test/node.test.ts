@@ -133,3 +133,138 @@ test('rejects history states with behaviour or a bad history kind', () => {
     ['error:invalid-history'],
   );
 });
+
+// ---------------------------------------------------------------------------
+// Transitions and target resolution
+// ---------------------------------------------------------------------------
+
+const lights: Config = {
+  id: 'lights',
+  initial: 'off',
+  on: { RESET: '.off', BREAK: '#broken' },
+  states: {
+    off: { on: { ON: 'on', DEEP: 'on.bright' } },
+    on: {
+      initial: 'dim',
+      entry: 'power',
+      exit: ['unpower', 'log'],
+      on: { OFF: 'off', BRIGHT: { target: '.bright', actions: 'flash' } },
+      after: { 5000: 'off', COOL_DOWN: { target: 'off', guard: 'isHot' } },
+      onDone: 'off',
+      always: [{ target: 'off', guard: 'noPower' }],
+      states: {
+        dim: { on: { TOGGLE: 'bright', NOOP: { actions: 'beep' }, UP: '#lights.on.bright' } },
+        bright: { on: { TOGGLE: 'dim', BREAK: '#broken' } },
+        blown: { type: 'final' },
+        last: { type: 'history', target: 'bright' },
+      },
+    },
+    faulty: { id: 'broken' },
+  },
+};
+
+test('normalizes transitions from on, always, after and onDone', () => {
+  const tree = buildTree(lights);
+  assert.deepEqual(tree.issues, []);
+  const on = tree.byId.get('lights.on')!;
+  assert.deepEqual(
+    on.transitions.map((t) => [t.eventType, t.targets.map((n) => n.id), t.internal]),
+    [
+      ['OFF', ['lights.off'], false],
+      ['BRIGHT', ['lights.on.bright'], true],
+      ['', ['lights.off'], false],
+      ['after(5000)#lights.on', ['lights.off'], false],
+      ['after(COOL_DOWN)#lights.on', ['lights.off'], false],
+      ['done.state.lights.on', ['lights.off'], false],
+    ],
+  );
+  assert.deepEqual(on.delays, [
+    { key: '5000', eventType: 'after(5000)#lights.on', delay: 5000 },
+    { key: 'COOL_DOWN', eventType: 'after(COOL_DOWN)#lights.on', delay: 'COOL_DOWN' },
+  ]);
+  assert.deepEqual(on.entry, ['power']);
+  assert.deepEqual(on.exit, ['unpower', 'log']);
+  assert.deepEqual(on.transitions[1].actions, ['flash']);
+  assert.equal(on.transitions[4].guard, 'isHot');
+});
+
+test('resolves sibling, relative, id and id-with-path targets', () => {
+  const tree = buildTree(lights);
+  const dim = tree.byId.get('lights.on.dim')!;
+  const byEvent = new Map(dim.transitions.map((t) => [t.eventType, t]));
+  assert.equal(byEvent.get('TOGGLE')!.targets[0].id, 'lights.on.bright');
+  assert.equal(byEvent.get('UP')!.targets[0].id, 'lights.on.bright');
+  assert.deepEqual(byEvent.get('NOOP')!.targets, []);
+  assert.equal(tree.byId.get('lights.off')!.transitions[1].targets[0].id, 'lights.on.bright');
+  assert.equal(tree.byId.get('lights.on.bright')!.transitions[1].targets[0].id, 'broken');
+  // Root transitions resolve plain names against the root's own children.
+  assert.deepEqual(
+    tree.root.transitions.map((t) => [t.targets[0].id, t.internal]),
+    [
+      ['lights.off', true],
+      ['broken', false],
+    ],
+  );
+  assert.equal(tree.byId.get('lights.on.last')!.historyDefault?.id, 'lights.on.bright');
+});
+
+test('reports unknown targets and drops the transition', () => {
+  const tree = buildTree({
+    initial: 'a',
+    states: {
+      a: { on: { GO: 'missing', DEEP: '#machine.b.nope', REL: '.child', ROOT: '#machine' }, always: 'gone' },
+      b: {},
+    },
+  });
+  assert.deepEqual(
+    tree.issues.map((issue) => issue.code),
+    ['unknown-target', 'unknown-target', 'unknown-target', 'unknown-target', 'unknown-target'],
+  );
+  assert.match(tree.issues[0].message, /"missing" of the transition on "GO"/);
+  assert.match(tree.issues[3].message, /root state/);
+  assert.match(tree.issues[4].message, /eventless/);
+  assert.equal(tree.byId.get('machine.a')!.transitions.length, 0);
+});
+
+test('reports invalid delays and transitions on final states', () => {
+  const tree = buildTree({
+    initial: 'a',
+    states: {
+      a: { after: { '-5': 'b', Infinity: 'b', ' ': 'b' } },
+      b: { type: 'final', on: { X: 'a' } },
+    },
+  });
+  assert.deepEqual(
+    tree.issues.map((issue) => [issue.code, issue.path]),
+    [
+      ['invalid-delay', 'a'],
+      ['invalid-delay', 'a'],
+      ['invalid-delay', 'a'],
+      ['invalid-structure', 'b'],
+    ],
+  );
+});
+
+test('checks the default target of a history state', () => {
+  const tree = buildTree({
+    initial: 'a',
+    states: {
+      a: {
+        initial: 'x',
+        states: {
+          x: {},
+          h1: { type: 'history', target: '#machine.b' },
+          h2: { type: 'history', target: 'nowhere' },
+        },
+      },
+      b: {},
+    },
+  });
+  assert.deepEqual(
+    tree.issues.map((issue) => [issue.code, issue.path]),
+    [
+      ['invalid-history', 'a.h1'],
+      ['unknown-target', 'a.h2'],
+    ],
+  );
+});
