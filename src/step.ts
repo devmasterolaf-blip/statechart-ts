@@ -8,11 +8,24 @@
  */
 
 import { applyAssign } from './actions';
-import { MissingImplementationError } from './errors';
+import { MacrostepLimitError, MissingImplementationError } from './errors';
 import { evaluateGuard } from './guards';
-import { byDocumentOrder, isDescendant, properAncestors, type StateNode, type TransitionDefinition } from './node';
+import {
+  ALWAYS_EVENT,
+  byDocumentOrder,
+  isDescendant,
+  properAncestors,
+  type StateNode,
+  type TransitionDefinition,
+} from './node';
 import type { Effect } from './state';
 import type { ActionConfig, EventObject, Implementations } from './types';
+
+/**
+ * Upper bound on the microsteps of one macrostep. Eventless transitions and
+ * raised events that keep re-enabling each other would otherwise never end.
+ */
+export const MAX_MICROSTEPS = 1000;
 
 export interface StepSnapshot<C, E extends EventObject> {
   configuration: Iterable<StateNode<C, E>>;
@@ -53,15 +66,26 @@ export class Stepper<C, E extends EventObject> {
     this.settle();
   }
 
-  /** Drains the internal queue until the machine is stable. */
+  /**
+   * Runs until the machine is stable: eventless transitions are taken as long
+   * as any is enabled, then the next raised event is handled, and so on.
+   */
   private settle(): void {
+    let microsteps = 0;
     for (;;) {
-      const next = this.internalQueue.shift();
-      if (!next) {
-        return;
+      let enabled = this.select(ALWAYS_EVENT);
+      if (enabled.length === 0) {
+        const next = this.internalQueue.shift();
+        if (!next) {
+          return;
+        }
+        this.event = next;
+        enabled = this.select(next.type);
       }
-      this.event = next;
-      this.microstep(this.select(next.type));
+      if (enabled.length > 0 && ++microsteps > MAX_MICROSTEPS) {
+        throw new MacrostepLimitError(MAX_MICROSTEPS, enabled[0].source.label);
+      }
+      this.microstep(enabled);
     }
   }
 

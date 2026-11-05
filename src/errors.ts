@@ -69,3 +69,17 @@ export class GuardEvaluationError extends StatechartError {
     this.cause = cause;
   }
 }
+
+/** One event caused more microsteps than allowed, most likely an endless loop. */
+export class MacrostepLimitError extends StatechartError {
+  readonly limit: number;
+
+  constructor(limit: number, stateLabel: string) {
+    super(
+      'macrostep-limit',
+      `More than ${limit} microsteps for a single event; eventless transitions or raised events ` +
+        `probably loop (last transition taken from state "${stateLabel}").`,
+    );
+    this.limit = limit;
+  }
+}
