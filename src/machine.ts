@@ -71,10 +71,20 @@ export class Machine<C, E extends EventObject> {
   /**
    * Computes the next state for an event. Pure: the given state is not
    * modified and no action is executed; the side effects to run are listed in
-   * `effects` of the returned state.
+   * `effects` of the returned state. A machine that is done ignores events.
    */
   transition(state: State<C, E>, event: E | E['type']): State<C, E> {
     const eventObject = toEventObject(event);
+    if (state.done) {
+      return new State({
+        root: this.root,
+        configuration: state.configuration,
+        context: state.context,
+        event: eventObject,
+        history: state.history,
+        done: true,
+      });
+    }
     const stepper = new Stepper(this.root, this.implementations, {
       configuration: state.configuration,
       context: state.context,
@@ -111,6 +121,7 @@ export class Machine<C, E extends EventObject> {
       history,
       effects: stepper.effects,
       changed,
+      done: stepper.done,
     });
   }
 }

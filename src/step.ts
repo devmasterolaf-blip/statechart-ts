@@ -13,6 +13,7 @@ import { evaluateGuard } from './guards';
 import {
   ALWAYS_EVENT,
   byDocumentOrder,
+  doneEventType,
   isDescendant,
   properAncestors,
   type StateNode,
@@ -63,6 +64,25 @@ export class Stepper<C, E extends EventObject> {
     this.settle();
   }
 
+  /** True once the root is in a final configuration. */
+  get done(): boolean {
+    return this.isInFinalState(this.root);
+  }
+
+  /**
+   * A compound state is final when its active child is a final state; a
+   * parallel state when all of its regions are.
+   */
+  private isInFinalState(node: StateNode<C, E>): boolean {
+    if (node.kind === 'compound') {
+      return node.children.some((child) => child.kind === 'final' && this.configuration.has(child));
+    }
+    if (node.kind === 'parallel') {
+      return node.children.filter((child) => child.kind !== 'history').every((child) => this.isInFinalState(child));
+    }
+    return false;
+  }
+
   /** Processes one external event as a full macrostep. */
   send(event: EventObject): void {
     this.event = event;
@@ -77,6 +97,11 @@ export class Stepper<C, E extends EventObject> {
   private settle(): void {
     let microsteps = 0;
     for (;;) {
+      if (this.done) {
+        // A finished machine handles nothing further, not even raised events.
+        this.internalQueue.length = 0;
+        return;
+      }
       let enabled = this.select(ALWAYS_EVENT);
       if (enabled.length === 0) {
         const next = this.internalQueue.shift();
@@ -330,6 +355,24 @@ export class Stepper<C, E extends EventObject> {
       }
       this.configuration.add(node);
       this.runActions(node.entry, node);
+      if (node.kind === 'final') {
+        this.raiseDone(node);
+      }
+    }
+  }
+
+  /**
+   * Entering a final state completes its parent. If that completes all regions
+   * of an enclosing parallel state, the parallel state is done as well, and so
+   * on upwards.
+   */
+  private raiseDone(finalNode: StateNode<C, E>): void {
+    const parent = finalNode.parent as StateNode<C, E>;
+    this.internalQueue.push({ type: doneEventType(parent.id) });
+    let enclosing = parent.parent;
+    while (enclosing && enclosing.kind === 'parallel' && this.isInFinalState(enclosing)) {
+      this.internalQueue.push({ type: doneEventType(enclosing.id) });
+      enclosing = enclosing.parent;
     }
   }
 
