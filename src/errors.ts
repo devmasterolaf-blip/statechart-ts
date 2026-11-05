@@ -57,3 +57,15 @@ export class MissingImplementationError extends StatechartError {
     this.implementationName = name;
   }
 }
+
+/** A guard function threw while a transition was being selected. */
+export class GuardEvaluationError extends StatechartError {
+  override readonly cause: unknown;
+
+  constructor(guardName: string | undefined, stateLabel: string, eventType: string, cause: unknown) {
+    const which = guardName === undefined ? 'An inline guard' : `Guard "${guardName}"`;
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super('guard-failed', `${which} of state "${stateLabel}" threw on event "${eventType}": ${reason}`);
+    this.cause = cause;
+  }
+}

@@ -4,6 +4,7 @@ export const VERSION = '0.1.0';
 export * from './types';
 export * from './errors';
 export { assign, raise } from './actions';
+export { and, not, or, stateIn } from './guards';
 export { StateNode } from './node';
 export type { TransitionDefinition, DelayDefinition } from './node';
 export { State } from './state';

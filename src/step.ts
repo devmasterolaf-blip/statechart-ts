@@ -9,6 +9,7 @@
 
 import { applyAssign } from './actions';
 import { MissingImplementationError } from './errors';
+import { evaluateGuard } from './guards';
 import { byDocumentOrder, isDescendant, properAncestors, type StateNode, type TransitionDefinition } from './node';
 import type { Effect } from './state';
 import type { ActionConfig, EventObject, Implementations } from './types';
@@ -69,15 +70,17 @@ export class Stepper<C, E extends EventObject> {
   // -------------------------------------------------------------------------
 
   /**
-   * For every active leaf, the first matching transition found on the leaf or
-   * its nearest ancestor wins.
+   * For every active leaf, the first matching transition whose guard passes,
+   * found on the leaf or its nearest ancestor, wins.
    */
   private select(eventType: string): TransitionDefinition<C, E>[] {
     const enabled: TransitionDefinition<C, E>[] = [];
     const leaves = [...this.configuration].filter((node) => node.isLeaf).sort(byDocumentOrder);
     for (const leaf of leaves) {
       for (const node of [leaf, ...properAncestors(leaf)]) {
-        const transition = node.transitions.find((candidate) => candidate.eventType === eventType);
+        const transition = node.transitions.find(
+          (candidate) => candidate.eventType === eventType && this.passes(candidate),
+        );
         if (transition) {
           if (!enabled.includes(transition)) {
             enabled.push(transition);
@@ -87,6 +90,19 @@ export class Stepper<C, E extends EventObject> {
       }
     }
     return enabled;
+  }
+
+  private passes(transition: TransitionDefinition<C, E>): boolean {
+    if (transition.guard === undefined) {
+      return true;
+    }
+    return evaluateGuard(transition.guard, {
+      context: this.context,
+      event: this.event as E,
+      meta: { isActive: (stateId) => [...this.configuration].some((node) => node.id === stateId) },
+      guards: this.implementations.guards,
+      owner: transition.source.label,
+    });
   }
 
   // -------------------------------------------------------------------------
