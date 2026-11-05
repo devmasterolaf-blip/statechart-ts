@@ -1,0 +1,28 @@
+{
+  "id": "light",
+  "description": "A traffic light with a pedestrian button and a power-failure mode.",
+  "context": { "cycles": 0 },
+  "initial": "working",
+  "states": {
+    "working": {
+      "initial": "green",
+      "on": { "POWER_OUT": "flashing" },
+      "states": {
+        "green": {
+          "after": { "30000": "yellow" },
+          "on": { "PEDESTRIAN": { "target": "yellow", "guard": "minGreenElapsed" } }
+        },
+        "yellow": { "after": { "4000": "red" } },
+        "red": {
+          "entry": "countCycle",
+          "after": { "RED_TIME": "green" }
+        }
+      }
+    },
+    "flashing": {
+      "entry": "startFlashing",
+      "exit": "stopFlashing",
+      "on": { "POWER_BACK": "working" }
+    }
+  }
+}

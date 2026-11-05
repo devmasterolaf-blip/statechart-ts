@@ -1,0 +1,36 @@
+{
+  "id": "player",
+  "description": "A media player: transport and sound are independent, and RESUME returns to where playback stopped.",
+  "initial": "stopped",
+  "states": {
+    "stopped": {
+      "on": {
+        "PLAY": "active",
+        "RESUME": "active.memory",
+        "EJECT": { "target": "ejected", "guard": { "type": "not", "guard": "trayLocked" }, "actions": "openTray" }
+      }
+    },
+    "active": {
+      "type": "parallel",
+      "on": { "STOP": "stopped" },
+      "states": {
+        "transport": {
+          "initial": "playing",
+          "states": {
+            "playing": { "entry": "startPlayback", "exit": "pausePlayback", "on": { "PAUSE": "paused" } },
+            "paused": { "on": { "PLAY": "playing" }, "after": { "600000": "#player.stopped" } }
+          }
+        },
+        "sound": {
+          "initial": "on",
+          "states": {
+            "on": { "on": { "MUTE": "off" } },
+            "off": { "on": { "UNMUTE": "on" } }
+          }
+        },
+        "memory": { "type": "history", "history": "deep" }
+      }
+    },
+    "ejected": { "type": "final" }
+  }
+}

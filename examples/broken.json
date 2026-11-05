@@ -1,0 +1,9 @@
+{
+  "id": "broken",
+  "description": "Deliberately wrong: used to show what the validator reports.",
+  "states": {
+    "idle": { "on": { "START": "runing" } },
+    "running": { "on": { "STOP": ["idle", { "target": "idle", "guard": "never" }] } },
+    "forgotten": {}
+  }
+}
