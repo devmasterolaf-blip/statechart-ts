@@ -3,8 +3,9 @@
  * initial state and the state reached from another state by an event.
  */
 
-import { InvalidMachineError, type Issue } from './errors';
+import { InvalidMachineError, RestoreError, type Issue } from './errors';
 import { buildTree, type StateNode } from './node';
+import { RESTORE_EVENT_TYPE, resolveConfiguration, resolveHistory, type PersistedState } from './serialize';
 import { State } from './state';
 import { Stepper } from './step';
 import { INIT_EVENT_TYPE, type EventObject, type Implementations, type MachineConfig } from './types';
@@ -92,6 +93,30 @@ export class Machine<C, E extends EventObject> {
     });
     stepper.send(eventObject);
     return this.snapshot(stepper, eventObject, stepper.taken > 0);
+  }
+
+  /**
+   * Rebuilds a state from the output of State.toJSON(). No action runs and
+   * the returned state has no effects. Whether the machine is done is derived
+   * from the configuration, not read from the input.
+   *
+   * @throws RestoreError when the value or the history does not fit this machine.
+   */
+  restoreState(persisted: PersistedState<C>): State<C, E> {
+    if (typeof persisted !== 'object' || persisted === null) {
+      throw new RestoreError('(root)', 'A persisted state must be an object with "value" and "context".');
+    }
+    const configuration = resolveConfiguration(this.root, persisted.value);
+    const history = resolveHistory(this.byId, persisted.history);
+    const stepper = new Stepper(this.root, this.implementations, { configuration, context: persisted.context });
+    return new State({
+      root: this.root,
+      configuration,
+      context: persisted.context,
+      event: { type: RESTORE_EVENT_TYPE },
+      history,
+      done: stepper.done,
+    });
   }
 
   private historyNodes(history: ReadonlyMap<string, readonly string[]>): Map<string, StateNode<C, E>[]> {

@@ -4,6 +4,7 @@
  */
 
 import { byDocumentOrder, type StateNode } from './node';
+import type { StateJSON } from './serialize';
 import type { ActionFn, EventObject, StateValue } from './types';
 
 /**
@@ -139,5 +140,18 @@ export class State<C, E extends EventObject> {
   /** Ids of the active leaf states in document order. */
   get leafIds(): string[] {
     return this.configuration.filter((node) => node.isLeaf).map((node) => node.id);
+  }
+
+  /**
+   * The parts needed to continue later with Machine.restoreState(). The
+   * context is passed through as it is, so it has to be JSON-compatible for
+   * the result to survive JSON.stringify. Effects and the event are left out.
+   */
+  toJSON(): StateJSON<C> {
+    const history: { [historyId: string]: string[] } = {};
+    for (const [historyId, stateIds] of this.history) {
+      history[historyId] = [...stateIds];
+    }
+    return { value: this.value, context: this.context, history, done: this.done };
   }
 }

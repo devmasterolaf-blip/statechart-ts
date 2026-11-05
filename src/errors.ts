@@ -114,6 +114,17 @@ export class ActionExecutionError extends StatechartError {
   }
 }
 
+/** A persisted state or service snapshot does not fit the machine. */
+export class RestoreError extends StatechartError {
+  /** Where the problem is: a state label, `(history)` or `(timers)`. */
+  readonly path: string;
+
+  constructor(path: string, message: string) {
+    super('invalid-snapshot', `Cannot restore at ${path}: ${message}`);
+    this.path = path;
+  }
+}
+
 /** A service method was called in a status that does not allow it. */
 export class ServiceStateError extends StatechartError {
   constructor(message: string) {
