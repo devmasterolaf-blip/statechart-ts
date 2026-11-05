@@ -78,7 +78,16 @@ export interface ActionMeta<E extends EventObject> {
   send(event: E | E['type']): void;
 }
 
-export type ActionFn<C, E extends EventObject> = (context: C, event: E, meta: ActionMeta<E>) => void;
+/**
+ * `E` is the event the action can be called with. `TAll` is the full event
+ * union of the machine; it differs from `E` inside `on`, where `E` is narrowed
+ * to the event of that key while `send` and `raise` still accept any event.
+ */
+export type ActionFn<C, E extends EventObject, TAll extends EventObject = E> = (
+  context: C,
+  event: E,
+  meta: ActionMeta<TAll>,
+) => void;
 
 export type Assigner<C, E extends EventObject> = (context: C, event: E) => Partial<C>;
 
@@ -99,11 +108,11 @@ export interface RaiseAction<E extends EventObject> {
 }
 
 /** An action is a named reference, an inline function or a built-in action object. */
-export type ActionConfig<C, E extends EventObject> =
+export type ActionConfig<C, E extends EventObject, TAll extends EventObject = E> =
   | string
-  | ActionFn<C, E>
+  | ActionFn<C, E, TAll>
   | AssignAction<C, E>
-  | RaiseAction<E>;
+  | RaiseAction<TAll>;
 
 // ---------------------------------------------------------------------------
 // Transitions and states
@@ -111,14 +120,14 @@ export type ActionConfig<C, E extends EventObject> =
 
 export type SingleOrArray<T> = T | T[];
 
-export interface TransitionConfig<C, E extends EventObject> {
+export interface TransitionConfig<C, E extends EventObject, TAll extends EventObject = E> {
   /**
    * Target state(s). `sibling`, `sibling.child`, `.child` (relative to the
    * source) or `#id`. Omit for a targetless transition that only runs actions.
    */
   target?: SingleOrArray<string>;
   guard?: GuardConfig<C, E>;
-  actions?: SingleOrArray<ActionConfig<C, E>>;
+  actions?: SingleOrArray<ActionConfig<C, E, TAll>>;
   /**
    * An internal transition does not exit its source state. Defaults to true
    * when every target is relative (starts with `.`), false otherwise.
@@ -128,9 +137,13 @@ export interface TransitionConfig<C, E extends EventObject> {
 }
 
 /** A transition is written as a bare target string or a full config object. */
-export type TransitionInput<C, E extends EventObject> = string | TransitionConfig<C, E>;
+export type TransitionInput<C, E extends EventObject, TAll extends EventObject = E> =
+  | string
+  | TransitionConfig<C, E, TAll>;
 
-export type TransitionsConfig<C, E extends EventObject> = SingleOrArray<TransitionInput<C, E>>;
+export type TransitionsConfig<C, E extends EventObject, TAll extends EventObject = E> = SingleOrArray<
+  TransitionInput<C, E, TAll>
+>;
 
 export interface StateNodeConfig<C, E extends EventObject> {
   /** Custom id, addressable as `#id`. Defaults to the dotted path from the root. */
@@ -140,7 +153,7 @@ export interface StateNodeConfig<C, E extends EventObject> {
   /** Key of the child entered by default. Required for compound states. */
   initial?: string;
   states?: { [key: string]: StateNodeConfig<C, E> };
-  on?: { [K in E['type']]?: TransitionsConfig<C, Extract<E, { type: K }>> };
+  on?: { [K in E['type']]?: TransitionsConfig<C, Extract<E, { type: K }>, E> };
   /** Eventless transitions, checked whenever the state is active. */
   always?: TransitionsConfig<C, E>;
   /** Delayed transitions keyed by milliseconds or by a named delay. */

@@ -45,3 +45,15 @@ export class InvalidMachineError extends StatechartError {
     this.issues = issues;
   }
 }
+
+/** A name used in the definition has no implementation. */
+export class MissingImplementationError extends StatechartError {
+  readonly kind: 'action' | 'guard' | 'delay';
+  readonly implementationName: string;
+
+  constructor(kind: 'action' | 'guard' | 'delay', name: string, stateLabel: string) {
+    super('missing-implementation', `No implementation for ${kind} "${name}" (used in state "${stateLabel}").`);
+    this.kind = kind;
+    this.implementationName = name;
+  }
+}

@@ -4,7 +4,23 @@
  */
 
 import { byDocumentOrder, type StateNode } from './node';
-import type { EventObject, StateValue } from './types';
+import type { ActionFn, EventObject, StateValue } from './types';
+
+/**
+ * A side effect produced while computing a transition. Computing a state is
+ * pure; effects are data for whoever runs the machine (normally a Service).
+ */
+export interface ExecEffect<C, E extends EventObject> {
+  kind: 'exec';
+  /** Name of the action when it was referenced by name. */
+  name: string | undefined;
+  exec: ActionFn<C, E>;
+  /** Context and event as they were when the action was reached. */
+  context: C;
+  event: E;
+}
+
+export type Effect<C, E extends EventObject> = ExecEffect<C, E>;
 
 /**
  * Computes the value of `node` for a configuration: the key of the active
@@ -57,6 +73,7 @@ export interface StateInit<C, E extends EventObject> {
   context: C;
   event: EventObject;
   history?: ReadonlyMap<string, readonly string[]>;
+  effects?: readonly Effect<C, E>[];
   changed?: boolean;
   done?: boolean;
 }
@@ -70,6 +87,8 @@ export class State<C, E extends EventObject> {
   readonly event: EventObject;
   /** Recorded history: history state id to the ids of the remembered states. */
   readonly history: ReadonlyMap<string, readonly string[]>;
+  /** Side effects of the step that produced this state, in execution order. */
+  readonly effects: readonly Effect<C, E>[];
   /** True when at least one transition was taken to produce this state. */
   readonly changed: boolean;
   /** True when the machine has reached a top-level final configuration. */
@@ -83,6 +102,7 @@ export class State<C, E extends EventObject> {
     this.context = init.context;
     this.event = init.event;
     this.history = init.history ?? new Map();
+    this.effects = init.effects ?? [];
     this.changed = init.changed ?? false;
     this.done = init.done ?? false;
     this.ids = new Set(this.configuration.map((node) => node.id));
