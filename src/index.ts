@@ -13,7 +13,16 @@ export { Machine, createMachine } from './machine';
 export { ClockError, SimulatedClock, SystemClock } from './clock';
 export type { Clock, TimerHandle } from './clock';
 export { Service, interpret } from './interpreter';
-export type { ErrorListener, ServiceOptions, ServiceStatus, StateListener, Unsubscribe } from './interpreter';
+export type {
+  ErrorListener,
+  PersistedService,
+  ServiceOptions,
+  ServiceSnapshot,
+  ServiceStatus,
+  StateListener,
+  TimerJSON,
+  Unsubscribe,
+} from './interpreter';
 export { RESTORE_EVENT_TYPE } from './serialize';
 export type { PersistedState, StateJSON } from './serialize';
 export { assertValidMachine, formatIssues, validateMachine } from './validate';

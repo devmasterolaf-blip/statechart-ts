@@ -5,8 +5,9 @@
  */
 
 import { SystemClock, type Clock, type TimerHandle } from './clock';
-import { ActionExecutionError, ServiceStateError } from './errors';
+import { ActionExecutionError, RestoreError, ServiceStateError } from './errors';
 import { toEventObject, type Machine } from './machine';
+import type { PersistedState, StateJSON } from './serialize';
 import type { Effect, State } from './state';
 import type { ActionMeta, EventObject } from './types';
 
@@ -22,9 +23,35 @@ export type StateListener<C, E extends EventObject> = (state: State<C, E>) => vo
 export type ErrorListener = (error: unknown) => void;
 export type Unsubscribe = () => void;
 
-export interface ServiceOptions {
+/** A pending delayed transition as stored in a service snapshot. */
+export interface TimerJSON {
+  id: string;
+  event: EventObject;
+  /** Milliseconds left until the timer fires. */
+  remaining: number;
+}
+
+/** What Service.persist() produces. */
+export interface ServiceSnapshot<C> {
+  state: StateJSON<C>;
+  timers: TimerJSON[];
+}
+
+/** What a service can be resumed from; `timers` may be left out. */
+export interface PersistedService<C> {
+  state: PersistedState<C>;
+  timers?: TimerJSON[];
+}
+
+export interface ServiceOptions<C = unknown> {
   /** Drives delayed transitions. Defaults to the system clock. */
   clock?: Clock;
+  /**
+   * Resume from the output of Service.persist() instead of entering the
+   * initial state. Entry actions are not run again; the pending timers are
+   * started with the time they had left.
+   */
+  snapshot?: PersistedService<C>;
 }
 
 interface ActiveTimer {
@@ -48,10 +75,23 @@ export class Service<C, E extends EventObject> {
   /** Errors of the current processing run, when nobody listens for errors. */
   private pendingErrors: unknown[] = [];
   private readonly meta: ActionMeta<E> = { send: (event) => this.send(event) };
+  /** Timers to start again when the service was created from a snapshot. */
+  private readonly restoredTimers: TimerJSON[] | undefined;
 
-  constructor(machine: Machine<C, E>, options: ServiceOptions = {}) {
+  /**
+   * @throws RestoreError when `options.snapshot` does not fit the machine.
+   */
+  constructor(machine: Machine<C, E>, options: ServiceOptions<C> = {}) {
     this.machine = machine;
     this.clock = options.clock ?? new SystemClock();
+    if (options.snapshot !== undefined) {
+      const { snapshot } = options;
+      if (typeof snapshot !== 'object' || snapshot === null) {
+        throw new RestoreError('(root)', 'A service snapshot must be an object with "state".');
+      }
+      this.current = machine.restoreState(snapshot.state);
+      this.restoredTimers = checkTimers(snapshot.timers);
+    }
   }
 
   get status(): ServiceStatus {
@@ -77,8 +117,42 @@ export class Service<C, E extends EventObject> {
       throw new ServiceStateError(`A service that is ${this.currentStatus} cannot be started again.`);
     }
     this.currentStatus = 'running';
-    this.process(() => this.commit(this.machine.initialState));
+    this.process(() => this.enter());
     return this;
+  }
+
+  private enter(): void {
+    if (!this.current || !this.restoredTimers) {
+      this.commit(this.machine.initialState);
+      return;
+    }
+    this.commit(this.current);
+    for (const timer of this.restoredTimers) {
+      // A listener may have stopped the service while it was being resumed.
+      if (this.currentStatus === 'running') {
+        this.schedule(timer.id, timer.event, timer.remaining);
+      }
+    }
+  }
+
+  /**
+   * The current state plus the pending timers, as plain data. Feed it to
+   * `interpret(machine, { snapshot })` to continue later, in this process or
+   * another one. Events still waiting in the queue are not part of it, so
+   * call this between events rather than from an action.
+   *
+   * @throws ServiceStateError when the service has not been started.
+   */
+  persist(): ServiceSnapshot<C> {
+    if (this.currentStatus === 'idle') {
+      throw new ServiceStateError('A service has to be started before it can be persisted.');
+    }
+    const now = this.clock.now();
+    const timers: TimerJSON[] = [];
+    for (const [id, timer] of this.timers) {
+      timers.push({ id, event: timer.event, remaining: Math.max(0, timer.due - now) });
+    }
+    return { state: this.getSnapshot().toJSON(), timers };
   }
 
   /** Stops the service. Queued and later events are dropped, timers cancelled. */
@@ -254,10 +328,37 @@ export class Service<C, E extends EventObject> {
   }
 }
 
-/** Creates a service for a machine. Call start() to run it. */
+function checkTimers(timers: unknown): TimerJSON[] {
+  if (timers === undefined) {
+    return [];
+  }
+  if (!Array.isArray(timers)) {
+    throw new RestoreError('(timers)', 'Timers must be an array.');
+  }
+  return (timers as unknown[]).map((item, index) => {
+    const timer = item as Partial<TimerJSON> | null;
+    const event = timer?.event as Partial<EventObject> | null | undefined;
+    if (typeof timer !== 'object' || timer === null || typeof timer.id !== 'string') {
+      throw new RestoreError('(timers)', `Timer ${index} needs a string "id".`);
+    }
+    if (typeof event !== 'object' || event === null || typeof event.type !== 'string') {
+      throw new RestoreError('(timers)', `Timer "${timer.id}" needs an "event" with a string type.`);
+    }
+    if (typeof timer.remaining !== 'number' || !Number.isFinite(timer.remaining) || timer.remaining < 0) {
+      throw new RestoreError('(timers)', `Timer "${timer.id}" needs a finite "remaining" time >= 0.`);
+    }
+    return { id: timer.id, event: event as EventObject, remaining: timer.remaining };
+  });
+}
+
+/**
+ * Creates a service for a machine. Call start() to run it.
+ *
+ * @throws RestoreError when `options.snapshot` does not fit the machine.
+ */
 export function interpret<C, E extends EventObject>(
   machine: Machine<C, E>,
-  options?: ServiceOptions,
+  options?: ServiceOptions<C>,
 ): Service<C, E> {
   return new Service(machine, options);
 }
