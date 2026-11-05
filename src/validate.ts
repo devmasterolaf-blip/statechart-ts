@@ -6,6 +6,7 @@
 
 import { InvalidMachineError, type Issue, type IssueCode, type IssueSeverity } from './errors';
 import { ALWAYS_EVENT, buildTree, type MachineTree, type StateNode } from './node';
+import { unreachableStates } from './reachability';
 import type { ActionConfig, EventObject, GuardConfig, Implementations, MachineConfig } from './types';
 
 export interface ValidateOptions<C, E extends EventObject> {
@@ -34,6 +35,12 @@ export function validateMachine<C, E extends EventObject>(
     checkStateReferences(node, tree, report);
     if (options.implementations) {
       checkImplementations(node, options.implementations, report);
+    }
+  }
+  // Reachability is only meaningful once every target and initial resolves.
+  if (!issues.some((issue) => issue.severity === 'error')) {
+    for (const node of unreachableStates(tree)) {
+      report('unreachable-state', node, 'No transition or initial entry leads to this state.', 'warning');
     }
   }
   return issues;

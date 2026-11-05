@@ -15,6 +15,7 @@ export type IssueCode =
   | 'invalid-history'
   | 'invalid-delay'
   | 'shadowed-transition'
+  | 'unreachable-state'
   | 'unknown-state-reference'
   | 'missing-guard'
   | 'missing-action'
