@@ -14,3 +14,5 @@ export { ClockError, SimulatedClock, SystemClock } from './clock';
 export type { Clock, TimerHandle } from './clock';
 export { Service, interpret } from './interpreter';
 export type { ErrorListener, ServiceOptions, ServiceStatus, StateListener, Unsubscribe } from './interpreter';
+export { assertValidMachine, formatIssues, validateMachine } from './validate';
+export type { ValidateOptions } from './validate';

@@ -13,7 +13,12 @@ export type IssueCode =
   | 'unknown-target'
   | 'invalid-structure'
   | 'invalid-history'
-  | 'invalid-delay';
+  | 'invalid-delay'
+  | 'shadowed-transition'
+  | 'unknown-state-reference'
+  | 'missing-guard'
+  | 'missing-action'
+  | 'missing-delay';
 
 /** One problem found in a machine definition. */
 export interface Issue {
