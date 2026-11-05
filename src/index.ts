@@ -27,5 +27,6 @@ export { RESTORE_EVENT_TYPE } from './serialize';
 export type { PersistedState, StateJSON } from './serialize';
 export { assertValidMachine, formatIssues, validateMachine } from './validate';
 export type { ValidateOptions } from './validate';
+export { toDot } from './export/dot';
 export { toMermaid } from './export/mermaid';
 export type { DiagramOptions } from './export/labels';
