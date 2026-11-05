@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assign, createMachine, raise } from '../src/index';
+import { InvalidMachineError, assign, createMachine, raise } from '../src/index';
 import { effectNames, noopActions } from './helpers/trace';
 
 test('reaching a final child fires onDone of the parent', () => {
@@ -161,4 +161,32 @@ test('a final state nested in a compound state does not finish the machine', () 
   const state = machine.transition(machine.initialState, 'DONE');
   assert.deepEqual(state.value, { task: 'complete' });
   assert.equal(state.done, false);
+});
+
+test('a final state directly under a parallel state is rejected', () => {
+  // Such a region used to raise the done event of the parallel state as soon
+  // as it was entered, although the other regions were still running.
+  assert.throws(
+    () =>
+      createMachine({
+        initial: 'work',
+        states: {
+          work: {
+            type: 'parallel',
+            onDone: 'end',
+            states: {
+              flag: { type: 'final' },
+              job: { initial: 'running', states: { running: { on: { FINISH: 'finished' } }, finished: { type: 'final' } } },
+            },
+          },
+          end: {},
+        },
+      }),
+    (error: unknown) =>
+      error instanceof InvalidMachineError &&
+      error.issues.length === 1 &&
+      error.issues[0].code === 'invalid-structure' &&
+      error.issues[0].path === 'work.flag' &&
+      /cannot be a region of a parallel state/.test(error.issues[0].message),
+  );
 });

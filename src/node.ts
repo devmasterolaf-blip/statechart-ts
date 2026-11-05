@@ -260,6 +260,15 @@ class TreeBuilder<C, E extends EventObject> {
     if (!node.parent && (kind === 'final' || kind === 'history')) {
       this.report('invalid-structure', node, `The root state cannot be of type "${kind}".`);
     }
+    if (kind === 'final' && node.parent?.kind === 'parallel') {
+      // A region is done when its own final child is active; a region that is
+      // itself final has no such child and could never complete consistently.
+      this.report(
+        'invalid-structure',
+        node,
+        'A final state cannot be a region of a parallel state; put it inside a compound region.',
+      );
+    }
     if (node.isLeaf || kind === 'history') {
       if (node.children.length > 0) {
         this.report('invalid-structure', node, `A state of type "${kind}" cannot have child states.`);
